@@ -9,7 +9,9 @@ import numpy as np
 import cv2
 import onnx
 import onnxruntime
+from tritonhttpclient import *
 from ..utils import face_align
+
 
 __all__ = [
     'ArcFaceONNX',
@@ -81,7 +83,13 @@ class ArcFaceONNX:
         
         blob = cv2.dnn.blobFromImages(imgs, 1.0 / self.input_std, input_size,
                                       (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
-        net_out = self.session.run(self.output_names, {self.input_name: blob})[0]
+        if isinstance(self.session, InferenceServerClient):
+            session_input = InferInput("input.1", blob.shape, datatype='FP32')
+            session_input.set_data_from_numpy(blob, binary_data=True)
+            net_out = self.session.infer(model_name="recognition", inputs=[session_input])
+            net_out = net_out.as_numpy('683')[0]
+        else:
+            net_out = self.session.run(self.output_names, {self.input_name: blob})[0]
         return net_out
 
     def forward(self, batch_data):

@@ -13,6 +13,11 @@ import os
 import os.path as osp
 import cv2
 import sys
+from tritonhttpclient import *
+
+
+OUTPUT_KEYS = ['448', '471', '494', '451', '474', '497', '454', '477', '500']
+
 
 def softmax(z):
     assert len(z.shape) == 2
@@ -79,6 +84,8 @@ class RetinaFace:
             assert self.model_file is not None
             assert osp.exists(self.model_file)
             self.session = onnxruntime.InferenceSession(self.model_file, None)
+        elif self.session == 'triton':
+            self.session = InferenceServerClient(url="localhost:8000")
         self.center_cache = {}
         self.nms_thresh = 0.4
         self.det_thresh = 0.5
@@ -148,8 +155,15 @@ class RetinaFace:
         bboxes_list = []
         kpss_list = []
         input_size = tuple(img.shape[0:2][::-1])
-        blob = cv2.dnn.blobFromImage(img, 1.0/self.input_std, input_size, (self.input_mean, self.input_mean, self.input_mean), swapRB=True)
-        net_outs = self.session.run(self.output_names, {self.input_name : blob})
+        blob = cv2.dnn.blobFromImage(img, 1.0/self.input_std, input_size, (self.input_mean, self.input_mean,
+                                                                           self.input_mean), swapRB=True)
+        if isinstance(self.session, InferenceServerClient):
+            session_input = InferInput("input.1", blob.shape, datatype='FP32')
+            session_input.set_data_from_numpy(blob, binary_data=True)
+            net_outs = self.session.infer(model_name="detection", inputs=[session_input])
+            net_outs = [net_outs.as_numpy(x) for x in OUTPUT_KEYS]
+        else:
+            net_outs = self.session.run(self.output_names, {self.input_name : blob})
 
         input_height = blob.shape[2]
         input_width = blob.shape[3]
